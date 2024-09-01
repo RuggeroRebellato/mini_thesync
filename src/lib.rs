@@ -155,3 +155,121 @@ pub fn sleep(duration: Duration) -> impl Future<Output = ()> {
         Poll::Ready(())
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Instant;
+
+    #[test]
+    fn test_basic_task_execution() {
+        let runtime = Runtime::new(1);
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+
+        runtime.spawn(async move {
+            counter_clone.fetch_add(1, Ordering::SeqCst);
+        });
+
+        runtime.run();
+
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_multiple_tasks() {
+        let runtime = Runtime::new(4);
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        for _ in 0..100 {
+            let counter_clone = counter.clone();
+            runtime.spawn(async move {
+                counter_clone.fetch_add(1, Ordering::SeqCst);
+            });
+        }
+
+        runtime.run();
+
+        assert_eq!(counter.load(Ordering::SeqCst), 100);
+    }
+
+    #[test]
+    fn test_task_sleep() {
+        let runtime = Runtime::new(1);
+        let start = Instant::now();
+
+        runtime.spawn(async {
+            sleep(Duration::from_millis(100)).await;
+        });
+
+        runtime.run();
+
+        assert!(start.elapsed() >= Duration::from_millis(100));
+    }
+
+    #[test]
+    fn test_concurrent_execution() {
+        let runtime = Runtime::new(4);
+        let start = Instant::now();
+
+        for _ in 0..4 {
+            runtime.spawn(async {
+                sleep(Duration::from_millis(100)).await;
+            });
+        }
+
+        runtime.run();
+
+        // If tasks run concurrently, this should take just over 100ms, not 400ms
+        assert!(start.elapsed() < Duration::from_millis(150));
+    }
+
+    #[test]
+    fn test_task_completion() {
+        let runtime = Runtime::new(1);
+        let completed_tasks = Arc::new(Mutex::new(Vec::new()));
+
+        for i in 0..5 {
+            let completed_tasks_clone = completed_tasks.clone();
+            runtime.spawn(async move {
+                sleep(Duration::from_millis(50 * (5 - i as u64))).await;
+                completed_tasks_clone.lock().unwrap().push(i);
+            });
+        }
+
+        runtime.run();
+
+        let final_completed_tasks = completed_tasks.lock().unwrap();
+        assert_eq!(final_completed_tasks.len(), 5);
+        for i in 0..5 {
+            assert!(
+                final_completed_tasks.contains(&i),
+                "Task {} was not completed",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_nested_spawn() {
+        let runtime = Arc::new(Runtime::new(2));
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        {
+            let runtime_clone = runtime.clone();
+            let counter_clone = counter.clone();
+            runtime.spawn(async move {
+                counter_clone.fetch_add(1, Ordering::SeqCst);
+                let counter_clone = counter_clone.clone();
+                runtime_clone.spawn(async move {
+                    counter_clone.fetch_add(1, Ordering::SeqCst);
+                });
+            });
+        }
+
+        runtime.run();
+
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
+}
