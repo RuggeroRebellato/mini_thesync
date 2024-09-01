@@ -1,0 +1,25 @@
+[package]
+name = "mini_thesync"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+crossbeam = "0.8"
+num_cpus = "1.13"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+[[bench]]
+name = "runtime_comparison"
+path = "benches/runtime_comparison.rs"
+harness = false
+
+[lib]
+name = "mini_thesync"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mini_thesync"
+path = "src/main.rs"
